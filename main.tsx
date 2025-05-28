@@ -7,12 +7,28 @@ interface ChatMessage {
     content: string;
 }
 
+interface ModelConfig {
+    id: string;
+    name: string;
+    description: string;
+}
+
 // ===== COMPONENT SETUP AND STATE MANAGEMENT =====
 const ChatComponent: React.FC = () => {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [selectedModel, setSelectedModel] = useState('gpt-3.5-turbo');
     const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    // Available models (expandable for future)
+    const availableModels: ModelConfig[] = [
+        {
+            id: 'gpt-3.5-turbo',
+            name: 'GPT-3.5 Turbo',
+            description: 'Fast and efficient model for most tasks'
+        }
+    ];
 
     // ===== AUTO-SCROLL FUNCTIONALITY =====
     const scrollToBottom = () => {
@@ -39,7 +55,10 @@ const ChatComponent: React.FC = () => {
             const response = await fetch('http://localhost:8000/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt: input }),
+                body: JSON.stringify({ 
+                    prompt: input,
+                    model: selectedModel
+                }),
             });
 
             const reader = response.body?.getReader();
@@ -83,6 +102,31 @@ const ChatComponent: React.FC = () => {
     return (
         <div style={{ maxWidth: '800px', margin: '0 auto', padding: '20px' }}>
             <h1>LLM Chat</h1>
+            
+            {/* Model Selection */}
+            <div style={{ marginBottom: '20px' }}>
+                <label htmlFor="model-select" style={{ marginRight: '10px' }}>Select Model:</label>
+                <select
+                    id="model-select"
+                    value={selectedModel}
+                    onChange={(e) => setSelectedModel(e.target.value)}
+                    style={{
+                        padding: '8px',
+                        borderRadius: '4px',
+                        border: '1px solid #ccc'
+                    }}
+                >
+                    {availableModels.map(model => (
+                        <option key={model.id} value={model.id}>
+                            {model.name}
+                        </option>
+                    ))}
+                </select>
+                <p style={{ fontSize: '0.9em', color: '#666', marginTop: '5px' }}>
+                    {availableModels.find(m => m.id === selectedModel)?.description}
+                </p>
+            </div>
+
             <div style={{ 
                 height: '400px', 
                 overflowY: 'auto', 

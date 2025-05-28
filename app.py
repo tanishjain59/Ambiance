@@ -5,8 +5,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import json
+from openai import AsyncOpenAI
+from config import OPENAI_API_KEY, MODEL_CONFIG
 
 app = FastAPI()
+client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
 # ===== CORS CONFIGURATION =====
 # Enables frontend-backend communication
@@ -23,12 +26,21 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # ===== LLM RESPONSE GENERATOR =====
-# Simulates streaming LLM responses
+# Uses OpenAI's streaming API
 async def generate_chunks(prompt: str):
-    response = f"This is a simulated response to: {prompt}"
-    for word in response.split():
-        yield f"data: {json.dumps({'chunk': word})}\n\n"
-        await asyncio.sleep(0.1)
+    try:
+        stream = await client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
+            **MODEL_CONFIG
+        )
+        
+        async for chunk in stream:
+            if chunk.choices[0].delta.content:
+                yield f"data: {json.dumps({'chunk': chunk.choices[0].delta.content})}\n\n"
+                
+    except Exception as e:
+        error_message = f"Error: {str(e)}"
+        yield f"data: {json.dumps({'chunk': error_message})}\n\n"
 
 # ===== CHAT ENDPOINT =====
 # INTERACTS WITH FRONTEND: Receives POST requests from main.tsx
