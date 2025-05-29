@@ -43,3 +43,6 @@ build/
 *.swp
 *.swo
 .DS_Store 
+
+# Audio files
+static/audio/

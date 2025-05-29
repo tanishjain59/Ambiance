@@ -1,73 +1,63 @@
-// ===== IMPORTS AND TYPE DEFINITION =====
+// ===== IMPORTS AND TYPE DEFINITIONS =====
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 
-interface ChatMessage {
-    role: 'user' | 'assistant';
-    content: string;
-}
-
-interface ModelConfig {
-    id: string;
+interface SoundElement {
     name: string;
     description: string;
+    parameters: {
+        volume: number;
+        pan: number;
+        effects: string[];
+    };
+}
+
+interface SceneResponse {
+    narrative: string;
+    sound_elements: SoundElement[];
 }
 
 // ===== COMPONENT SETUP AND STATE MANAGEMENT =====
-const ChatComponent: React.FC = () => {
-    const [messages, setMessages] = useState<ChatMessage[]>([]);
-    const [input, setInput] = useState('');
+const SceneGenerator: React.FC = () => {
+    const [scene, setScene] = useState('');
+    const [response, setResponse] = useState<SceneResponse | null>(null);
     const [isLoading, setIsLoading] = useState(false);
-    const [selectedModel, setSelectedModel] = useState('gpt-3.5-turbo');
-    const messagesEndRef = useRef<HTMLDivElement>(null);
-
-    // Available models (expandable for future)
-    const availableModels: ModelConfig[] = [
-        {
-            id: 'gpt-3.5-turbo',
-            name: 'GPT-3.5 Turbo',
-            description: 'Fast and efficient model for most tasks'
-        }
-    ];
+    const [error, setError] = useState<string | null>(null);
+    const [audioUrls, setAudioUrls] = useState<string[]>([]);
+    const [isAudioLoading, setIsAudioLoading] = useState(false);
+    const responseEndRef = useRef<HTMLDivElement>(null);
 
     // ===== AUTO-SCROLL FUNCTIONALITY =====
     const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        responseEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     };
 
     useEffect(() => {
         scrollToBottom();
-    }, [messages]);
+    }, [response, audioUrls]);
 
-    // ===== MESSAGE SUBMISSION HANDLER =====
+    // ===== SCENE GENERATION HANDLER =====
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!input.trim()) return;
+        if (!scene.trim()) return;
 
-        const userMessage: ChatMessage = { role: 'user', content: input };
-        setMessages(prev => [...prev, userMessage]);
-        setInput('');
         setIsLoading(true);
+        setError(null);
+        setResponse(null);
+        setAudioUrls([]);
 
-        // ===== API COMMUNICATION AND STREAM PROCESSING =====
-        // INTERACTS WITH BACKEND: Sends POST request to app.py
         try {
-            const response = await fetch('http://localhost:8000/chat', {
+            const response = await fetch('http://localhost:8000/generate-scene', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    prompt: input,
-                    model: selectedModel
-                }),
+                body: JSON.stringify({ scene }),
             });
 
             const reader = response.body?.getReader();
             if (!reader) return;
 
-            let assistantMessage = '';
-            setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
-
-            // INTERACTS WITH BACKEND: Processes streaming response from app.py
+            let accumulatedResponse = '';
+            
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
@@ -79,12 +69,14 @@ const ChatComponent: React.FC = () => {
                     if (line.startsWith('data: ')) {
                         try {
                             const data = JSON.parse(line.slice(6));
-                            assistantMessage += data.chunk + ' ';
-                            setMessages(prev => {
-                                const newMessages = [...prev];
-                                newMessages[newMessages.length - 1].content = assistantMessage;
-                                return newMessages;
-                            });
+                            accumulatedResponse += data.chunk;
+                            // Try to parse the accumulated response as JSON
+                            try {
+                                const parsedResponse = JSON.parse(accumulatedResponse);
+                                setResponse(parsedResponse);
+                            } catch (e) {
+                                // If parsing fails, continue accumulating
+                            }
                         } catch (e) {
                             console.error('Error parsing chunk:', e);
                         }
@@ -92,76 +84,60 @@ const ChatComponent: React.FC = () => {
                 }
             }
         } catch (error) {
+            setError('Failed to generate scene. Please try again.');
             console.error('Error:', error);
         } finally {
             setIsLoading(false);
         }
     };
 
+    // ===== AUDIO GENERATION HANDLER =====
+    const handleGenerateAudio = async () => {
+        if (!response) return;
+        setIsAudioLoading(true);
+        setError(null);
+        setAudioUrls([]);
+        try {
+            const res = await fetch('http://localhost:8000/generate-audio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sound_elements: response.sound_elements }),
+            });
+            const data = await res.json();
+            setAudioUrls(data.audio_urls);
+        } catch (err) {
+            setError('Failed to generate audio. Please try again.');
+        } finally {
+            setIsAudioLoading(false);
+        }
+    };
+
     // ===== UI RENDERING =====
     return (
-        <div style={{ maxWidth: '800px', margin: '0 auto', padding: '20px' }}>
-            <h1>LLM Chat</h1>
+        <div>
+            <h1>Ambient Sound Generator</h1>
+            <p>Describe a scene or mood to generate ambient sounds</p>
             
-            {/* Model Selection */}
-            <div style={{ marginBottom: '20px' }}>
-                <label htmlFor="model-select" style={{ marginRight: '10px' }}>Select Model:</label>
-                <select
-                    id="model-select"
-                    value={selectedModel}
-                    onChange={(e) => setSelectedModel(e.target.value)}
+            <form onSubmit={handleSubmit} style={{ marginBottom: '20px' }}>
+                <input
+                    type="text"
+                    value={scene}
+                    onChange={(e) => setScene(e.target.value)}
+                    placeholder="e.g., midnight in a neon-lit Tokyo back-alley"
                     style={{
-                        padding: '8px',
+                        width: '100%',
+                        padding: '12px',
+                        marginBottom: '10px',
                         borderRadius: '4px',
                         border: '1px solid #ccc'
                     }}
-                >
-                    {availableModels.map(model => (
-                        <option key={model.id} value={model.id}>
-                            {model.name}
-                        </option>
-                    ))}
-                </select>
-                <p style={{ fontSize: '0.9em', color: '#666', marginTop: '5px' }}>
-                    {availableModels.find(m => m.id === selectedModel)?.description}
-                </p>
-            </div>
-
-            <div style={{ 
-                height: '400px', 
-                overflowY: 'auto', 
-                border: '1px solid #ccc', 
-                borderRadius: '4px',
-                padding: '10px',
-                marginBottom: '20px'
-            }}>
-                {messages.map((message, index) => (
-                    <div key={index} style={{
-                        marginBottom: '10px',
-                        padding: '10px',
-                        backgroundColor: message.role === 'user' ? '#e3f2fd' : '#f5f5f5',
-                        borderRadius: '4px'
-                    }}>
-                        <strong>{message.role === 'user' ? 'You: ' : 'Assistant: '}</strong>
-                        {message.content}
-                    </div>
-                ))}
-                <div ref={messagesEndRef} />
-            </div>
-            <form onSubmit={handleSubmit} style={{ display: 'flex', gap: '10px' }}>
-                <input
-                    type="text"
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    placeholder="Type your message..."
-                    style={{ flex: 1, padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
                     disabled={isLoading}
                 />
                 <button 
                     type="submit" 
                     disabled={isLoading}
                     style={{
-                        padding: '8px 16px',
+                        padding: '12px 24px',
                         backgroundColor: '#2196f3',
                         color: 'white',
                         border: 'none',
@@ -169,13 +145,107 @@ const ChatComponent: React.FC = () => {
                         cursor: isLoading ? 'not-allowed' : 'pointer'
                     }}
                 >
-                    {isLoading ? 'Sending...' : 'Send'}
+                    {isLoading ? 'Generating...' : 'Generate Scene'}
                 </button>
             </form>
+
+            {error && (
+                <div style={{ color: 'red', marginBottom: '20px' }}>
+                    {error}
+                </div>
+            )}
+
+            {response && (
+                <div style={{ 
+                    padding: '20px',
+                    backgroundColor: '#f8f9fa',
+                    borderRadius: '8px',
+                    marginBottom: '20px'
+                }}>
+                    <h2>Generated Scene</h2>
+                    <p style={{ marginBottom: '20px' }}>{response.narrative}</p>
+                    
+                    <h3>Sound Elements</h3>
+                    <div style={{ display: 'grid', gap: '15px' }}>
+                        {response.sound_elements.map((element, index) => (
+                            <div key={index} style={{
+                                padding: '15px',
+                                backgroundColor: 'white',
+                                borderRadius: '4px',
+                                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                            }}>
+                                <h4>{element.name}</h4>
+                                <p>{element.description}</p>
+                                <div style={{ marginTop: '10px' }}>
+                                    <strong>Parameters:</strong>
+                                    <ul style={{ margin: '5px 0', paddingLeft: '20px' }}>
+                                        <li>Volume: {element.parameters.volume}</li>
+                                        <li>Pan: {element.parameters.pan}</li>
+                                        <li>Effects: {element.parameters.effects.join(', ')}</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    <button 
+                        onClick={handleGenerateAudio}
+                        disabled={isAudioLoading}
+                        style={{
+                            marginTop: '20px',
+                            padding: '12px 24px',
+                            backgroundColor: '#43a047',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: isAudioLoading ? 'not-allowed' : 'pointer',
+                            fontWeight: 600
+                        }}
+                    >
+                        {isAudioLoading ? 'Generating Audio...' : 'Generate Audio'}
+                    </button>
+                </div>
+            )}
+
+            {/* Spinner for audio generation */}
+            {isAudioLoading && (
+                <div style={{ margin: '20px 0', textAlign: 'center' }}>
+                    <div className="spinner" style={{
+                        display: 'inline-block',
+                        width: '40px',
+                        height: '40px',
+                        border: '4px solid #ccc',
+                        borderTop: '4px solid #43a047',
+                        borderRadius: '50%',
+                        animation: 'spin 1s linear infinite'
+                    }} />
+                    <style>
+                        {`
+                        @keyframes spin {
+                            0% { transform: rotate(0deg); }
+                            100% { transform: rotate(360deg); }
+                        }
+                        `}
+                    </style>
+                    <div>Generating audio...</div>
+                </div>
+            )}
+
+            {/* Audio Players */}
+            {audioUrls.length > 0 && (
+                <div style={{ marginBottom: '20px' }}>
+                    <h3>Generated Audio</h3>
+                    {audioUrls.map((url, idx) => (
+                        <div key={idx} style={{ marginBottom: '10px' }}>
+                            <audio controls src={url} style={{ width: '100%' }} />
+                        </div>
+                    ))}
+                </div>
+            )}
+            <div ref={responseEndRef} />
         </div>
     );
 };
 
 // ===== REACT ROOT RENDERING =====
 const root = createRoot(document.getElementById('root')!);
-root.render(<ChatComponent />);
+root.render(<SceneGenerator />);

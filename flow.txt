@@ -1,0 +1,66 @@
+Ambient Sound Generator - Detailed Flow
+
+1. USER INPUT
+   - User enters a scene/mood description
+   - Example: "midnight in a neon-lit Tokyo back-alley"
+   - Frontend validates and formats input
+   - Sends POST request to backend API
+
+2. LLM NARRATIVE GENERATION
+   - Backend receives input
+   - Sends to OpenAI API with prompt template:
+     "Describe the ambient sounds and atmosphere of: [user input]"
+   - Receives structured response with:
+     - Short narrative paragraph
+     - List of key sound elements
+     - Suggested audio parameters
+   - Example response:
+     "The quiet hum of neon signs, distant chatter from izakayas, 
+      occasional footsteps on wet pavement, and the gentle patter of rain"
+
+3. AUDIOCRAFT GENERATION
+   - Backend processes LLM response
+   - Extracts sound elements and parameters
+   - Sends to AudioCraft API with:
+     - Sound descriptors
+     - Duration parameters
+     - Quality settings
+   - Receives generated audio files for each element
+   - Combines into layered ambient track
+   - Stores temporarily (with cleanup policy)
+
+4. TONE.JS MIXING
+   - Frontend receives:
+     - Generated audio files
+     - Mixing parameters from LLM
+   - Initializes Tone.js with:
+     - Audio file buffers
+     - Mixing parameters
+     - Effect chains
+   - Sets up real-time controls for:
+     - Volume levels
+     - Pan positions
+     - Effect parameters
+     - Loop points
+
+5. REAL-TIME REMIXING
+   - User interface provides controls for:
+     - Individual sound element volumes
+     - Effect parameters (reverb, delay, etc.)
+     - Pan positions
+     - Loop points
+   - Tone.js handles:
+     - Real-time parameter changes
+     - Smooth transitions
+     - Effect processing
+     - Audio routing
+   - Changes are applied immediately
+   - State is maintained for session
+
+TECHNICAL CONSIDERATIONS:
+- Audio file caching for performance
+- Cleanup of temporary files
+- Error handling for API failures
+- Fallback options for unsupported browsers
+- Mobile device optimization
+- Bandwidth considerations for audio streaming 
