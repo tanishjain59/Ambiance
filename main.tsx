@@ -1,6 +1,7 @@
 // ===== IMPORTS AND TYPE DEFINITIONS =====
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
+import * as Tone from 'tone';
 
 interface SoundElement {
     name: string;
@@ -15,6 +16,11 @@ interface SoundElement {
 interface SceneResponse {
     narrative: string;
     sound_elements: SoundElement[];
+}
+
+interface MixerProps {
+    audioUrls: string[];
+    soundElements: SoundElement[];
 }
 
 // ===== COMPONENT SETUP AND STATE MANAGEMENT =====
@@ -110,6 +116,224 @@ const SceneGenerator: React.FC = () => {
         } finally {
             setIsAudioLoading(false);
         }
+    };
+
+    // ===== MIXER COMPONENT =====
+    const Mixer: React.FC<MixerProps> = ({ audioUrls, soundElements }) => {
+        const [isPlaying, setIsPlaying] = useState(false);
+        const [volumes, setVolumes] = useState<number[]>(soundElements.map(el => el.parameters.volume));
+        const [pans, setPans] = useState<number[]>(soundElements.map(el => el.parameters.pan));
+        // Store both player and panner refs
+        const players = useRef<{ player: Tone.Player, panner: Tone.Panner }[]>([]);
+        const mixer = useRef<Tone.Channel>();
+
+        // Only render up to the minimum of audioUrls and soundElements
+        const barCount = Math.min(audioUrls.length, soundElements.length);
+
+        // Initialize Tone.js and create players
+        useEffect(() => {
+            mixer.current = new Tone.Channel().toDestination();
+            const reverb = new Tone.Reverb(3).connect(mixer.current);
+            players.current = audioUrls.slice(0, barCount).map((url, i) => {
+                const player = new Tone.Player({
+                    url,
+                    loop: true,
+                    volume: Tone.gainToDb(volumes[i])
+                });
+                const panner = new Tone.Panner(pans[i]);
+                // Connect: Player -> Panner -> Reverb -> Mixer
+                player.connect(panner);
+                panner.connect(reverb);
+                return { player, panner };
+            });
+            return () => {
+                players.current.forEach(({ player, panner }) => {
+                    player.dispose();
+                    panner.dispose();
+                });
+                mixer.current?.dispose();
+            };
+        }, [audioUrls, barCount]);
+
+        // Handle play/stop
+        const togglePlay = async () => {
+            if (Tone.context.state !== 'running') {
+                await Tone.start();
+            }
+            if (isPlaying) {
+                players.current.forEach(({ player }) => player.stop());
+            } else {
+                players.current.forEach(({ player }) => player.start());
+            }
+            setIsPlaying(!isPlaying);
+        };
+
+        // Handle volume changes
+        const handleVolumeChange = (index: number, value: number) => {
+            const newVolumes = [...volumes];
+            newVolumes[index] = value;
+            setVolumes(newVolumes);
+            players.current[index].player.volume.value = Tone.gainToDb(value);
+        };
+
+        // Handle pan changes
+        const handlePanChange = (index: number, value: number) => {
+            const newPans = [...pans];
+            newPans[index] = value;
+            setPans(newPans);
+            players.current[index].panner.pan.value = value;
+        };
+
+        return (
+            <div style={{ 
+                padding: '20px',
+                backgroundColor: '#f8f9fa',
+                borderRadius: '8px',
+                marginTop: '20px',
+                maxWidth: '800px',
+                margin: '20px auto'
+            }}>
+                <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'center',
+                    marginBottom: '20px'
+                }}>
+                    <h3>Audio Mixer</h3>
+                    <button 
+                        onClick={togglePlay}
+                        style={{
+                            padding: '10px 20px',
+                            backgroundColor: isPlaying ? '#f44336' : '#4caf50',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        {isPlaying ? 'Stop' : 'Play'}
+                    </button>
+                </div>
+
+                {/* Mixer Controls */}
+                <div style={{ 
+                    display: 'grid', 
+                    gridTemplateColumns: `repeat(${barCount}, 1fr)`,
+                    gap: '20px', 
+                    marginBottom: '30px',
+                    padding: '20px',
+                    backgroundColor: 'white',
+                    borderRadius: '8px',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                }}>
+                    {Array.from({ length: barCount }).map((_, index) => (
+                        <div key={index} style={{ 
+                            display: 'flex', 
+                            flexDirection: 'column', 
+                            alignItems: 'center'
+                        }}>
+                            {/* Volume Bar */}
+                            <div style={{ 
+                                height: '200px', 
+                                width: '40px', 
+                                backgroundColor: '#eee',
+                                borderRadius: '4px',
+                                position: 'relative',
+                                marginBottom: '10px'
+                            }}>
+                                <div style={{
+                                    position: 'absolute',
+                                    bottom: 0,
+                                    width: '100%',
+                                    height: `${volumes[index] * 100}%`,
+                                    backgroundColor: isPlaying ? '#4caf50' : '#2196f3',
+                                    borderRadius: '4px',
+                                    transition: 'height 0.1s ease'
+                                }} />
+                                <input
+                                    type="range"
+                                    min="0"
+                                    max="1"
+                                    step="0.01"
+                                    value={volumes[index]}
+                                    onChange={(e) => handleVolumeChange(index, parseFloat(e.target.value))}
+                                    style={{
+                                        position: 'absolute',
+                                        width: '200%',
+                                        height: '100%',
+                                        transform: 'rotate(-90deg) translateX(-50%)',
+                                        transformOrigin: 'left',
+                                        marginLeft: '50%',
+                                        opacity: 0,
+                                        cursor: 'pointer'
+                                    }}
+                                />
+                            </div>
+                            {/* Volume Label */}
+                            <div style={{ 
+                                fontSize: '0.9em', 
+                                color: '#666',
+                                marginBottom: '5px'
+                            }}>
+                                {Math.round(volumes[index] * 100)}%
+                            </div>
+                            {/* Track Name */}
+                            <div style={{ 
+                                fontSize: '0.8em', 
+                                fontWeight: 'bold',
+                                textAlign: 'center',
+                                color: '#333',
+                                marginBottom: '5px'
+                            }}>
+                                {soundElements[index].name.split(' ')[0]}
+                            </div>
+                            {/* Pan Control */}
+                            <div style={{ 
+                                display: 'flex', 
+                                alignItems: 'center',
+                                gap: '5px'
+                            }}>
+                                <span style={{ fontSize: '0.8em', color: '#666' }}>L</span>
+                                <input
+                                    type="range"
+                                    min="-1"
+                                    max="1"
+                                    step="0.01"
+                                    value={pans[index]}
+                                    onChange={(e) => handlePanChange(index, parseFloat(e.target.value))}
+                                    style={{ width: '60px' }}
+                                />
+                                <span style={{ fontSize: '0.8em', color: '#666' }}>R</span>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Track Descriptions */}
+                <div style={{ 
+                    display: 'grid', 
+                    gridTemplateColumns: `repeat(${Math.min(2, barCount)}, 1fr)`,
+                    gap: '15px',
+                    padding: '20px',
+                    backgroundColor: 'white',
+                    borderRadius: '8px',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                }}>
+                    {Array.from({ length: barCount }).map((_, index) => (
+                        <div key={index} style={{
+                            padding: '15px',
+                            backgroundColor: '#f8f9fa',
+                            borderRadius: '4px'
+                        }}>
+                            <h4 style={{ margin: '0 0 5px 0' }}>{soundElements[index].name}</h4>
+                            <p style={{ margin: 0, fontSize: '0.9em', color: '#666' }}>
+                                {soundElements[index].description}
+                            </p>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
     };
 
     // ===== UI RENDERING =====
@@ -231,15 +455,8 @@ const SceneGenerator: React.FC = () => {
             )}
 
             {/* Audio Players */}
-            {audioUrls.length > 0 && (
-                <div style={{ marginBottom: '20px' }}>
-                    <h3>Generated Audio</h3>
-                    {audioUrls.map((url, idx) => (
-                        <div key={idx} style={{ marginBottom: '10px' }}>
-                            <audio controls src={url} style={{ width: '100%' }} />
-                        </div>
-                    ))}
-                </div>
+            {audioUrls.length > 0 && response && (
+                <Mixer audioUrls={audioUrls} soundElements={response.sound_elements} />
             )}
             <div ref={responseEndRef} />
         </div>
