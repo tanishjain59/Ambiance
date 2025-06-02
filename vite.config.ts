@@ -5,14 +5,16 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '/chat': 'http://localhost:8000'
+      '/chat': 'http://localhost:8000',
+      '/generate-scene': 'http://localhost:8000',
+      '/generate-audio': 'http://localhost:8000'
     }
   },
   build: {
     outDir: 'static',
     assetsDir: '',
     rollupOptions: {
-      input: 'main.tsx'
+      input: 'src/main.tsx'
     }
   }
 }) 
